@@ -5,8 +5,7 @@ jinja2
 
 # LLM + embeddings
 anthropic
-# voyageai            # optional, pick whichever embedding provider is available
-# openai
+openai
 
 # Scraping
 requests

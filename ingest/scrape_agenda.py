@@ -136,18 +136,18 @@ def list_recent_meetings(sess: requests.Session | None = None) -> list[MeetingRe
     return sorted(meetings.values(), key=lambda r: r.meeting_date)
 
 
+def agenda_url(meeting: MeetingRef) -> str:
+    return f"{BASE}/Portal/Meeting?meetingTemplateId={meeting.template_id}"
+
+
 def fetch_agenda_html(meeting: MeetingRef, sess: requests.Session | None = None) -> str:
     sess = sess or _session()
-    r = sess.get(
-        f"{BASE}/Portal/Meeting",
-        params={"meetingTemplateId": meeting.template_id},
-        timeout=HTTP_TIMEOUT,
-    )
+    r = sess.get(agenda_url(meeting), timeout=HTTP_TIMEOUT)
     r.raise_for_status()
     return r.text
 
 
-def parse_items(html: str, meeting_date: str) -> list[dict]:
+def parse_items(html: str, meeting_date: str, meeting_url: str | None = None) -> list[dict]:
     """Walk every <tr> inside an item table and turn it into one agenda item.
 
     We iterate rows (not `td.agenda-item`) because section layouts differ:
@@ -186,6 +186,7 @@ def parse_items(html: str, meeting_date: str) -> list[dict]:
             {
                 "id": item_id,
                 "meeting_date": meeting_date,
+                "agenda_url": meeting_url,
                 "title": title,
                 "raw_text": text,
                 "stage": _infer_stage(section, item_id, meeting_date, today),
@@ -301,7 +302,7 @@ def main() -> None:
             except requests.RequestException as e:
                 print(f"  [skip] {m.meeting_date} fetch failed: {e}", file=sys.stderr)
                 continue
-            items = parse_items(html, m.meeting_date)
+            items = parse_items(html, m.meeting_date, agenda_url(m))
             for item in items:
                 db.upsert_agenda_item(conn, item)
             conn.commit()

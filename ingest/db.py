@@ -10,9 +10,15 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # Wait up to 30s if another writer (e.g. enrich.py) holds the lock.
+    conn.execute("PRAGMA busy_timeout = 30000")
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(agenda_items)").fetchall()}
+    if cols and "agenda_url" not in cols:
+        conn.execute("ALTER TABLE agenda_items ADD COLUMN agenda_url TEXT")
+        conn.commit()
     return conn
 
 
@@ -35,10 +41,10 @@ def upsert_agenda_item(conn: sqlite3.Connection, item: dict) -> None:
     conn.execute(
         """
         INSERT OR REPLACE INTO agenda_items
-          (id, meeting_date, title, raw_text, summary, topics, stage,
+          (id, meeting_date, agenda_url, title, raw_text, summary, topics, stage,
            dollar_amount, sponsors, embedding)
         VALUES (
-          :id, :meeting_date, :title, :raw_text,
+          :id, :meeting_date, :agenda_url, :title, :raw_text,
           (SELECT summary   FROM agenda_items WHERE id = :id),
           (SELECT topics    FROM agenda_items WHERE id = :id),
           :stage, :dollar_amount, :sponsors,
@@ -48,6 +54,7 @@ def upsert_agenda_item(conn: sqlite3.Connection, item: dict) -> None:
         {
             "id": item["id"],
             "meeting_date": item["meeting_date"],
+            "agenda_url": item.get("agenda_url"),
             "title": item["title"],
             "raw_text": item["raw_text"],
             "stage": item["stage"],

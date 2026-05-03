@@ -4,6 +4,7 @@
 CREATE TABLE IF NOT EXISTS agenda_items (
     id              TEXT PRIMARY KEY,        -- e.g. "CMA-2026-99"
     meeting_date    TEXT,                    -- ISO date "YYYY-MM-DD"
+    agenda_url      TEXT,                    -- PrimeGov rendered agenda page for the meeting
     title           TEXT,
     raw_text        TEXT,                    -- original agenda blurb
     summary         TEXT,                    -- LLM plain-English (1 paragraph)
