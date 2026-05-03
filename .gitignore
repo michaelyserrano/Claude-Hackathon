@@ -7,7 +7,10 @@ venv/
 !.env.example
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 .DS_Store
 .idea/
 .vscode/
 .specstory/
+.playwright-mcp/

@@ -1,109 +1,88 @@
-"""Scrape Reddit for Cambridge-related discussion using PRAW.
+"""Scrape Reddit for Cambridge-related discussion via the public JSON API.
 
-Subreddits:
-  - r/Cambridge       (general)
-  - r/CambridgeMA     (smaller, sometimes city-specific)
-  - r/boston          (filter posts mentioning "Cambridge")
+Why JSON, not PRAW
+------------------
+Reddit exposes every listing as JSON if you append `.json` (or hit `/new.json`).
+That avoids OAuth, an extra dependency, and stale-token errors at hackathon
+time. Polite requests (custom User-Agent, ~1 req/sec, retry on 429) work fine.
+
+Subreddits
+----------
+  - r/CambridgeMA  — the actual Cambridge, Massachusetts subreddit.
+  - r/boston       — large regional sub; we keep posts that mention Cambridge.
+  (r/cambridge is *Cambridge, England*, so we deliberately don't crawl it.)
 
 Window: last 60 days.
 Threshold: post score >= 10 OR comment_count >= 5.
 
-For each qualifying post, pull the top ~5 comments (by score) and
-concatenate into `body` so the LLM can tag/embed against richer text.
+For each qualifying post we pull the top ~5 comments (by score) and concatenate
+them into `body` so enrichment has more text to summarize / embed against.
 
 Writes raw rows to reddit_posts via ingest.db.upsert_reddit_post.
-Does NOT call any LLM — that happens in enrich.py.
-
-Output contract (one dict per post):
-    {
-      "id":            "<reddit post id>",
-      "url":           "https://reddit.com/...",
-      "subreddit":     "Cambridge",
-      "title":         "...",
-      "body":          "<post selftext>\\n---\\n<top comment 1>\\n---\\n...",
-      "score":         142,
-      "comment_count": 37,
-      "created_at":    "<ISO timestamp>",
-      # topics/embedding left NULL — enrich.py fills them.
-    }
-
-Auth: PRAW reads REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT
-from .env (via python-dotenv).
 """
 
 from __future__ import annotations
 
-import os
 import re
+import sys
+import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from typing import Any, Iterable
+from typing import Iterator
+
+import requests
 
 from ingest.db import connect, init_schema, upsert_reddit_post
 
-SUBREDDITS = ["Cambridge", "CambridgeMA", "boston"]
+API_BASE = "https://www.reddit.com"
+USER_AGENT = "cambridge-civic-feed/0.1 (Cambridge MA civic dashboard; +github)"
+SUBREDDITS = [
+    "CambridgeMA",
+    "boston",
+]
 WINDOW_DAYS = 60
 MIN_SCORE = 10
 MIN_COMMENTS = 5
 TOP_COMMENTS_PER_POST = 5
+PAGE_SIZE = 100  # Reddit max for listing endpoints
+HTTP_TIMEOUT = 30
+SLEEP_BETWEEN_REQUESTS = 1.0  # Reddit rate-limits anonymous traffic; stay polite.
+RATE_LIMIT_BACKOFF = 8.0
+MAX_RETRIES = 3
+
 CAMBRIDGE_PATTERN = re.compile(
-    r"\bcambridge\b|\bcambridge,\s*ma\b|\bcambridge\s+ma\b|\bcambridge\s+mass(?:achusetts)?\b",
+    r"\bcambridge\b|\bcambridge,?\s*ma\b|\bcambridge\s+mass(?:achusetts)?\b",
     re.IGNORECASE,
 )
 REMOVED_TEXT = {"[deleted]", "[removed]"}
 
 
-def reddit_client() -> Any:
-    """Build a PRAW client from .env credentials."""
-    try:
-        from dotenv import load_dotenv
-        import praw
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "Missing Reddit scraper dependencies. Run `pip install -r requirements.txt`."
-        ) from exc
-
-    load_dotenv()
-
-    client_id = os.getenv("REDDIT_CLIENT_ID")
-    client_secret = os.getenv("REDDIT_CLIENT_SECRET")
-    user_agent = os.getenv("REDDIT_USER_AGENT")
-    missing = [
-        name
-        for name, value in (
-            ("REDDIT_CLIENT_ID", client_id),
-            ("REDDIT_CLIENT_SECRET", client_secret),
-            ("REDDIT_USER_AGENT", user_agent),
-        )
-        if not value
-    ]
-    if missing:
-        raise RuntimeError(
-            "Missing Reddit credentials in .env: " + ", ".join(missing)
-        )
-
-    return praw.Reddit(
-        client_id=client_id,
-        client_secret=client_secret,
-        user_agent=user_agent,
-        check_for_async=False,
-    )
+def _session() -> requests.Session:
+    s = requests.Session()
+    s.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
+    return s
 
 
-def fetch_recent_posts(
-    reddit: Any, subreddit_name: str, since: datetime
-) -> Iterable[Any]:
-    """Yield newest subreddit posts until the scrape window is exhausted."""
-    since_timestamp = since.timestamp()
-    subreddit = reddit.subreddit(subreddit_name)
-    for submission in subreddit.new(limit=None):
-        if getattr(submission, "created_utc", 0) < since_timestamp:
-            break
-        yield submission
+def _get_json(sess: requests.Session, url: str, params: dict | None = None) -> dict:
+    """GET a Reddit JSON endpoint, retrying on transient errors and 429s."""
+    last_exc: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            r = sess.get(url, params=params, timeout=HTTP_TIMEOUT)
+            if r.status_code == 429:
+                # Reddit asks for backoff. Honor any Retry-After hint.
+                wait = float(r.headers.get("Retry-After", RATE_LIMIT_BACKOFF))
+                time.sleep(min(wait, 30))
+                continue
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError) as e:
+            last_exc = e
+            time.sleep(RATE_LIMIT_BACKOFF * (attempt + 1))
+    raise RuntimeError(f"reddit GET failed after {MAX_RETRIES} retries: {last_exc}")
 
 
-def clean_text(value: str | None) -> str:
-    """Normalize Reddit text fields and hide deleted/removed placeholders."""
+def _clean(value: str | None) -> str:
     if not value:
         return ""
     text = value.strip()
@@ -112,124 +91,137 @@ def clean_text(value: str | None) -> str:
     return text
 
 
-def mentions_cambridge(submission: Any) -> bool:
-    """Return whether a post appears to discuss Cambridge in local context."""
-    haystack = " ".join(
-        (
-            clean_text(getattr(submission, "title", "")),
-            clean_text(getattr(submission, "selftext", "")),
-        )
-    )
+def _mentions_cambridge(post: dict) -> bool:
+    haystack = " ".join((_clean(post.get("title")), _clean(post.get("selftext"))))
     return bool(CAMBRIDGE_PATTERN.search(haystack))
 
 
-def qualifies(submission: Any) -> bool:
-    """Apply the minimum engagement threshold."""
-    score = getattr(submission, "score", 0) or 0
-    comment_count = getattr(submission, "num_comments", 0) or 0
-    return score >= MIN_SCORE or comment_count >= MIN_COMMENTS
+def _qualifies(post: dict) -> bool:
+    return (post.get("score") or 0) >= MIN_SCORE or (
+        post.get("num_comments") or 0
+    ) >= MIN_COMMENTS
 
 
-def top_comments_text(submission: Any, n: int = TOP_COMMENTS_PER_POST) -> str:
-    """Return the top non-empty comment bodies, sorted by score."""
-    comments = getattr(submission, "comments", [])
-    if hasattr(comments, "replace_more"):
-        comments.replace_more(limit=0)
-    if hasattr(comments, "list"):
-        comments_iterable = comments.list()
-    else:
-        comments_iterable = comments
+def fetch_recent_posts(
+    sess: requests.Session, subreddit: str, since_ts: float
+) -> Iterator[dict]:
+    """Yield raw post dicts in /new order until we cross the window cutoff."""
+    after: str | None = None
+    while True:
+        params = {"limit": PAGE_SIZE, "raw_json": 1}
+        if after:
+            params["after"] = after
+        data = _get_json(sess, f"{API_BASE}/r/{subreddit}/new.json", params=params)
+        children = data.get("data", {}).get("children") or []
+        if not children:
+            return
+        for child in children:
+            post = child.get("data") or {}
+            if (post.get("created_utc") or 0) < since_ts:
+                return  # listings are time-ordered; stop on first too-old hit
+            yield post
+        after = data.get("data", {}).get("after")
+        if not after:
+            return
+        time.sleep(SLEEP_BETWEEN_REQUESTS)
 
-    ranked_comments = []
-    for comment in comments_iterable:
-        if getattr(comment, "stickied", False):
+
+def top_comments_text(
+    sess: requests.Session, post_id: str, n: int = TOP_COMMENTS_PER_POST
+) -> str:
+    """Return the top non-empty, non-stickied comment bodies, sorted by score."""
+    data = _get_json(
+        sess,
+        f"{API_BASE}/comments/{post_id}.json",
+        params={"limit": n * 4, "sort": "top", "raw_json": 1},
+    )
+    if not isinstance(data, list) or len(data) < 2:
+        return ""
+    children = data[1].get("data", {}).get("children") or []
+    ranked: list[tuple[int, str]] = []
+    for child in children:
+        if child.get("kind") != "t1":
             continue
-        body = clean_text(getattr(comment, "body", ""))
+        c = child.get("data") or {}
+        if c.get("stickied"):
+            continue
+        body = _clean(c.get("body"))
         if not body:
             continue
-        ranked_comments.append((getattr(comment, "score", 0) or 0, body))
+        ranked.append((c.get("score") or 0, body))
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    return "\n---\n".join(body for _, body in ranked[:n])
 
-    ranked_comments.sort(key=lambda item: item[0], reverse=True)
-    return "\n---\n".join(body for _, body in ranked_comments[:n])
 
-
-def submission_to_post(
-    submission: Any, comments_text: str | None = None
-) -> dict[str, Any]:
-    """Normalize a PRAW submission to the reddit_posts row contract."""
-    selftext = clean_text(getattr(submission, "selftext", ""))
-    if comments_text is None:
-        comments_text = top_comments_text(submission)
-
-    body_parts = [part for part in (selftext, comments_text) if part]
+def post_to_row(post: dict, comments_text: str) -> dict:
+    selftext = _clean(post.get("selftext"))
+    body_parts = [p for p in (selftext, comments_text) if p]
     created_at = datetime.fromtimestamp(
-        getattr(submission, "created_utc"), tz=timezone.utc
+        post.get("created_utc") or 0, tz=timezone.utc
     ).isoformat()
-
+    permalink = post.get("permalink") or ""
     return {
-        "id": getattr(submission, "id"),
-        "url": f"https://www.reddit.com{getattr(submission, 'permalink')}",
-        "subreddit": str(getattr(submission, "subreddit")),
-        "title": clean_text(getattr(submission, "title", "")),
+        "id": post.get("id"),
+        "url": f"https://www.reddit.com{permalink}",
+        "subreddit": (post.get("subreddit") or "").strip(),
+        "title": _clean(post.get("title")),
         "body": "\n---\n".join(body_parts),
-        "score": getattr(submission, "score", 0) or 0,
-        "comment_count": getattr(submission, "num_comments", 0) or 0,
+        "score": post.get("score") or 0,
+        "comment_count": post.get("num_comments") or 0,
         "created_at": created_at,
     }
 
 
 def main() -> None:
-    reddit = reddit_client()
+    sess = _session()
     since = datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)
+    since_ts = since.timestamp()
     stats: Counter[str] = Counter()
 
     init_schema()
     conn = connect()
     try:
-        for subreddit_name in SUBREDDITS:
-            subreddit_key = subreddit_name.lower()
-            for submission in fetch_recent_posts(reddit, subreddit_name, since):
-                stats[f"{subreddit_key}:seen"] += 1
-
-                if subreddit_key == "boston" and not mentions_cambridge(submission):
-                    stats[f"{subreddit_key}:skipped_not_cambridge"] += 1
+        for sub in SUBREDDITS:
+            key = sub.lower()
+            for post in fetch_recent_posts(sess, sub, since_ts):
+                stats[f"{key}:seen"] += 1
+                if post.get("removed_by_category"):
+                    stats[f"{key}:removed"] += 1
                     continue
-
-                if not qualifies(submission):
-                    stats[f"{subreddit_key}:skipped_low_engagement"] += 1
+                if key == "boston" and not _mentions_cambridge(post):
+                    stats[f"{key}:not_cambridge"] += 1
                     continue
-
+                if not _qualifies(post):
+                    stats[f"{key}:low_engagement"] += 1
+                    continue
                 try:
-                    comments_text = top_comments_text(submission)
-                except Exception as exc:  # PRAW/network hiccups should not kill the run.
+                    comments_text = top_comments_text(sess, post["id"])
+                except RuntimeError as exc:
                     print(
-                        f"warning: failed to fetch comments for {submission.id}: {exc}"
+                        f"warning: comments fetch failed for {post.get('id')}: {exc}",
+                        file=sys.stderr,
                     )
-                    stats[f"{subreddit_key}:comment_fetch_failed"] += 1
+                    stats[f"{key}:comment_fetch_failed"] += 1
                     comments_text = ""
-
-                upsert_reddit_post(conn, submission_to_post(submission, comments_text))
-                stats[f"{subreddit_key}:saved"] += 1
-        conn.commit()
+                upsert_reddit_post(conn, post_to_row(post, comments_text))
+                stats[f"{key}:saved"] += 1
+                time.sleep(SLEEP_BETWEEN_REQUESTS)
+            conn.commit()
     finally:
         conn.close()
 
-    total_saved = sum(stats[f"{name.lower()}:saved"] for name in SUBREDDITS)
+    total_saved = sum(stats[f"{s.lower()}:saved"] for s in SUBREDDITS)
     print(f"saved {total_saved} reddit posts from the last {WINDOW_DAYS} days")
-    for subreddit_name in SUBREDDITS:
-        subreddit_key = subreddit_name.lower()
+    for sub in SUBREDDITS:
+        k = sub.lower()
         print(
-            f"r/{subreddit_name}: "
-            f"seen={stats[f'{subreddit_key}:seen']} "
-            f"saved={stats[f'{subreddit_key}:saved']} "
-            f"not_cambridge={stats[f'{subreddit_key}:skipped_not_cambridge']} "
-            f"low_engagement={stats[f'{subreddit_key}:skipped_low_engagement']} "
-            f"comment_errors={stats[f'{subreddit_key}:comment_fetch_failed']}"
+            f"r/{sub}: seen={stats[f'{k}:seen']} saved={stats[f'{k}:saved']} "
+            f"removed={stats[f'{k}:removed']} "
+            f"not_cambridge={stats[f'{k}:not_cambridge']} "
+            f"low_engagement={stats[f'{k}:low_engagement']} "
+            f"comment_errors={stats[f'{k}:comment_fetch_failed']}"
         )
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except RuntimeError as exc:
-        raise SystemExit(f"error: {exc}") from None
+    main()
