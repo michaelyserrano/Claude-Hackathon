@@ -57,8 +57,32 @@ def upsert_agenda_item(conn: sqlite3.Connection, item: dict) -> None:
     )
 
 
-def upsert_petition(conn, petition: dict) -> None:  # filled in scrape_changeorg
-    ...
+def upsert_petition(conn: sqlite3.Connection, petition: dict) -> None:
+    """Insert or replace a petitions row.
+
+    Preserves topics/embedding from any prior row with the same id so
+    re-scraping doesn't blow away enrichment work.
+    """
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO petitions
+          (id, url, title, description, signature_count, topics, embedding, scraped_at)
+        VALUES (
+          :id, :url, :title, :description, :signature_count,
+          (SELECT topics    FROM petitions WHERE id = :id),
+          (SELECT embedding FROM petitions WHERE id = :id),
+          :scraped_at
+        )
+        """,
+        {
+            "id": petition["id"],
+            "url": petition["url"],
+            "title": petition["title"],
+            "description": petition["description"],
+            "signature_count": petition["signature_count"],
+            "scraped_at": petition["scraped_at"],
+        },
+    )
 
 
 def upsert_reddit_post(conn, post: dict) -> None:  # filled in scrape_reddit
