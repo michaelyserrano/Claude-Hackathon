@@ -1,0 +1,19 @@
+# Web app
+fastapi
+uvicorn[standard]
+jinja2
+
+# LLM + embeddings
+anthropic
+# voyageai            # optional, pick whichever embedding provider is available
+# openai
+
+# Scraping
+requests
+beautifulsoup4
+pdfplumber
+playwright            # for change.org (JS-heavy, anti-bot)
+praw                  # for reddit
+
+# Misc
+python-dotenv

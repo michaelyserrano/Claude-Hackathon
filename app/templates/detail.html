@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{# Detail page. Receives `item` and `matches` in context.
+   `matches` is the top 3 signals from db.get_top_matches(). #}
+
+{% block content %}
+  <a href="/" class="text-sm text-gray-500 hover:text-gray-800">← Back</a>
+
+  <header class="mt-4 mb-6">
+    <div class="text-xs uppercase tracking-wide text-gray-500">
+      {% for t in item.topics %}{{ t }}{% if not loop.last %} · {% endif %}{% endfor %}
+      · {{ item.stage }} · {{ item.meeting_date }}
+    </div>
+    <h1 class="text-2xl font-bold mt-1">{{ item.title }}</h1>
+  </header>
+
+  <section class="bg-white rounded-lg shadow-sm p-5 mb-6">
+    <h2 class="text-sm font-semibold text-gray-500 uppercase mb-2">Plain-English summary</h2>
+    <p>{{ item.summary }}</p>
+  </section>
+
+  <section class="mb-6">
+    <h2 class="text-sm font-semibold text-gray-500 uppercase mb-3">🔥 Why people care</h2>
+
+    {% for m in matches %}
+      <div class="bg-white rounded-lg shadow-sm p-4 mb-3">
+        <div class="text-xs text-gray-500">
+          {% if m.signal_type == "petition" %}
+            📝 Petition · {{ m.weight }} signatures
+          {% else %}
+            💬 r/{{ m.subreddit }} · {{ m.weight }} upvotes
+          {% endif %}
+        </div>
+        <p class="mt-1 text-sm">"{{ m.snippet }}"</p>
+        <a href="{{ m.url }}" class="text-xs text-blue-600 hover:underline mt-1 inline-block">
+          → {{ m.url }}
+        </a>
+      </div>
+    {% else %}
+      <p class="text-sm text-gray-500">No matched petitions or threads yet.</p>
+    {% endfor %}
+  </section>
+
+  <details class="text-sm text-gray-700">
+    <summary class="cursor-pointer text-gray-500">Original agenda text</summary>
+    <pre class="whitespace-pre-wrap mt-2">{{ item.raw_text }}</pre>
+  </details>
+{% endblock %}

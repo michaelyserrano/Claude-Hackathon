@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{# Feed page. Header + filters + card list.
+   The card list is rendered by _cards.html so /api/items can swap it
+   in via htmx without re-rendering the whole page. #}
+
+{% block content %}
+  <header class="mb-6">
+    <h1 class="text-3xl font-bold">Cambridge Council, in Plain English</h1>
+    <p class="text-sm text-gray-600 mt-1">
+      {# TODO: count of items currently shown #}
+      Showing items from the last 2 months.
+    </p>
+  </header>
+
+  {# Filter bar.
+     - Topic dropdown (populated from db.list_topics())
+     - Stage dropdown (populated from db.list_stages())
+     - Sort dropdown: Buzz | Recent | Dollars
+     Each onchange should hx-get /api/items?... and hx-target the card list. #}
+  <section class="flex gap-3 mb-6">
+    {# TODO: filter dropdowns #}
+  </section>
+
+  {# Card list. Swap target for htmx. #}
+  <section id="card-list">
+    {% include "_cards.html" %}
+  </section>
+{% endblock %}
