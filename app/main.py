@@ -1,4 +1,4 @@
-"""FastAPI server. Two HTML routes + one JSON endpoint for htmx filter updates.
+"""FastAPI server. Two HTML routes + JSON endpoints.
 
 Run:
     uvicorn app.main:app --reload
@@ -7,12 +7,18 @@ Run:
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import db
+
+BASE_DIR = Path(__file__).resolve().parent
+
+app = FastAPI(title="Cambridge Civic Feed")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
 def _parse_tags(raw: str | None) -> list[str]:
@@ -24,40 +30,53 @@ def _parse_tags(raw: str | None) -> list[str]:
     except (json.JSONDecodeError, TypeError):
         return []
 
-BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="Cambridge Civic Feed")
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
+def _wants_json(request: Request) -> bool:
+    return "application/json" in (request.headers.get("accept") or "")
 
 
 @app.get("/", response_class=HTMLResponse)
 def feed(request: Request, topic: str | None = None,
          stage: str | None = None, sort: str = "buzz"):
-    """Render the feed page with current filter state.
-
-    Filters live in the URL so the page is bookmarkable.
-    The card list itself is a partial that htmx swaps in on filter change
-    via /api/items.
-    """
-    # TODO
-    ...
+    """Render the feed page with current filter state."""
+    items = db.list_items(topic=topic, stage=stage, sort=sort)
+    return templates.TemplateResponse(
+        "feed.html",
+        {
+            "request": request,
+            "items": items,
+            "topics": db.list_topics(),
+            "stages": db.list_stages(),
+            "selected_topic": topic,
+            "selected_stage": stage,
+            "selected_sort": sort,
+        },
+    )
 
 
 @app.get("/item/{item_id}", response_class=HTMLResponse)
 def detail(request: Request, item_id: str):
     """Render the detail page: summary + 'Why people care' (top 3 matches)."""
-    # TODO
-    ...
+    item = db.get_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="item not found")
+    matches = db.get_top_matches(item_id, n=3)
+    return templates.TemplateResponse(
+        "detail.html",
+        {"request": request, "item": item, "matches": matches},
+    )
 
 
 @app.get("/api/items")
-def api_items(topic: str | None = None, stage: str | None = None,
-              sort: str = "buzz"):
-    """Returns the rendered cards partial as HTML for htmx, OR JSON if
-    the client asks for it. Decide based on Accept header."""
-    # TODO
-    ...
+def api_items(request: Request, topic: str | None = None,
+              stage: str | None = None, sort: str = "buzz"):
+    """Returns JSON if Accept: application/json, otherwise the cards partial HTML."""
+    items = db.list_items(topic=topic, stage=stage, sort=sort)
+    if _wants_json(request):
+        return JSONResponse({"items": items})
+    return templates.TemplateResponse(
+        "_cards.html", {"request": request, "items": items}
+    )
 
 
 @app.get("/api/feed")
