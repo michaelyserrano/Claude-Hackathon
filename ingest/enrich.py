@@ -161,8 +161,11 @@ TAG_SYSTEM = (
     f"Taxonomy: {json.dumps(TOPIC_TAXONOMY)}\n\n"
     "Use ONLY labels from the taxonomy. Pick 1-3 that best fit. "
     'Use "Other" only if nothing else fits.\n\n'
-    'Output strict JSON: a list of {"id": "...", "topics": ["...", ...]}. '
-    "No prose, no code fences."
+    "ORDERING IS SIGNIFICANT: the first tag MUST be the single best-fitting "
+    "primary topic — the one a reader should see as the headline category. "
+    "Any additional tags are secondary, ordered by relevance.\n\n"
+    'Output strict JSON: a list of {"id": "...", "topics": ["...", ...]} '
+    "where topics[0] is the primary topic. No prose, no code fences."
 )
 
 
