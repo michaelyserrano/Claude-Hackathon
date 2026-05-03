@@ -130,6 +130,22 @@ def upsert_reddit_post(conn: sqlite3.Connection, post: dict) -> None:
     )
 
 
+def upsert_transcript(conn: sqlite3.Connection, row: dict) -> None:
+    """Insert or replace a meeting_transcripts row."""
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO meeting_transcripts
+          (meeting_id, meeting_date, title, swagit_video_id, source_url,
+           transcript, char_count, fetched_at)
+        VALUES (
+          :meeting_id, :meeting_date, :title, :swagit_video_id, :source_url,
+          :transcript, :char_count, :fetched_at
+        )
+        """,
+        row,
+    )
+
+
 def get_unembedded(conn, table: str) -> list[sqlite3.Row]:
     return conn.execute(
         f"SELECT * FROM {table} WHERE embedding IS NULL"

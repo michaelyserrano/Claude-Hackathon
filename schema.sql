@@ -54,5 +54,17 @@ CREATE TABLE IF NOT EXISTS buzz_scores (
     top_signal_id   TEXT                     -- for headline quote in detail view
 );
 
+CREATE TABLE IF NOT EXISTS meeting_transcripts (
+    meeting_id      INTEGER PRIMARY KEY,     -- PrimeGov meeting id
+    meeting_date    TEXT,                    -- ISO date "YYYY-MM-DD"
+    title           TEXT,                    -- e.g. "Regular City Council Meeting"
+    swagit_video_id INTEGER,                 -- numeric id from videoUrl
+    source_url      TEXT,                    -- canonical Swagit transcript URL
+    transcript      TEXT,                    -- full plain text (auto-generated)
+    char_count      INTEGER,                 -- length(transcript), for quick filters
+    fetched_at      TEXT                     -- ISO timestamp
+);
+
 CREATE INDEX IF NOT EXISTS idx_matches_agenda ON matches(agenda_item_id);
 CREATE INDEX IF NOT EXISTS idx_agenda_meeting ON agenda_items(meeting_date);
+CREATE INDEX IF NOT EXISTS idx_transcripts_date ON meeting_transcripts(meeting_date);
