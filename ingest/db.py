@@ -85,8 +85,49 @@ def upsert_petition(conn: sqlite3.Connection, petition: dict) -> None:
     )
 
 
-def upsert_reddit_post(conn, post: dict) -> None:  # filled in scrape_reddit
-    ...
+def upsert_reddit_post(conn: sqlite3.Connection, post: dict) -> None:
+    """Insert or replace a reddit_posts row.
+
+    Preserves topics/embedding from any prior row with the same id so
+    re-scraping doesn't blow away enrichment work.
+    """
+    conn.execute(
+        """
+        INSERT INTO reddit_posts (
+            id,
+            url,
+            subreddit,
+            title,
+            body,
+            score,
+            comment_count,
+            created_at,
+            topics,
+            embedding
+        )
+        VALUES (
+            :id,
+            :url,
+            :subreddit,
+            :title,
+            :body,
+            :score,
+            :comment_count,
+            :created_at,
+            NULL,
+            NULL
+        )
+        ON CONFLICT(id) DO UPDATE SET
+            url = excluded.url,
+            subreddit = excluded.subreddit,
+            title = excluded.title,
+            body = excluded.body,
+            score = excluded.score,
+            comment_count = excluded.comment_count,
+            created_at = excluded.created_at
+        """,
+        post,
+    )
 
 
 def get_unembedded(conn, table: str) -> list[sqlite3.Row]:
