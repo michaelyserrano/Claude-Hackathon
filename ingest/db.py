@@ -13,14 +13,20 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 
 def connect() -> sqlite3.Connection:
     """Open a connection with row factory set to sqlite3.Row."""
-    # TODO
-    ...
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_schema() -> None:
     """Apply schema.sql. Idempotent (CREATE IF NOT EXISTS)."""
-    # TODO
-    ...
+    conn = connect()
+    try:
+        conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def upsert_agenda_item(conn, item: dict) -> None:
@@ -35,8 +41,43 @@ def upsert_petition(conn, petition: dict) -> None:
 
 
 def upsert_reddit_post(conn, post: dict) -> None:
-    # TODO
-    ...
+    conn.execute(
+        """
+        INSERT INTO reddit_posts (
+            id,
+            url,
+            subreddit,
+            title,
+            body,
+            score,
+            comment_count,
+            created_at,
+            topics,
+            embedding
+        )
+        VALUES (
+            :id,
+            :url,
+            :subreddit,
+            :title,
+            :body,
+            :score,
+            :comment_count,
+            :created_at,
+            NULL,
+            NULL
+        )
+        ON CONFLICT(id) DO UPDATE SET
+            url = excluded.url,
+            subreddit = excluded.subreddit,
+            title = excluded.title,
+            body = excluded.body,
+            score = excluded.score,
+            comment_count = excluded.comment_count,
+            created_at = excluded.created_at
+        """,
+        post,
+    )
 
 
 def get_unembedded(conn, table: str) -> list[sqlite3.Row]:
