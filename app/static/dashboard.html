@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cambridge Civic Gap</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --color-bg: #ffffff;
+      --color-bg-secondary: #f5f5f2;
+      --color-text-primary: #1a1a18;
+      --color-text-secondary: #5f5e5a;
+      --color-text-tertiary: #888780;
+      --color-border: rgba(0,0,0,0.12);
+      --color-border-mid: rgba(0,0,0,0.22);
+      --color-accent: #1D9E75;
+      --color-accent-light: #E1F5EE;
+      --color-accent-dark: #085041;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --color-bg: #1c1c1a;
+        --color-bg-secondary: #252523;
+        --color-text-primary: #f0ede8;
+        --color-text-secondary: #b4b2a9;
+        --color-text-tertiary: #888780;
+        --color-border: rgba(255,255,255,0.1);
+        --color-border-mid: rgba(255,255,255,0.2);
+        --color-accent-light: #04342C;
+        --color-accent-dark: #9FE1CB;
+      }
+    }
+
+    body { background: var(--color-bg); color: var(--color-text-primary); min-height: 100vh; }
+
+    .topbar { padding: 16px 24px 0; border-bottom: 0.5px solid var(--color-border); background: var(--color-bg); position: sticky; top: 0; z-index: 10; }
+    .topbar-inner { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .logo { display: flex; align-items: center; gap: 8px; }
+    .logo-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-accent); flex-shrink: 0; }
+    .logo-text { font-size: 15px; font-weight: 500; color: var(--color-text-primary); }
+    .logo-sub { font-size: 12px; color: var(--color-text-secondary); margin-left: 2px; }
+    .last-updated { font-size: 12px; color: var(--color-text-tertiary); white-space: nowrap; }
+    .tabs { display: flex; }
+    .tab { padding: 8px 20px; font-size: 14px; color: var(--color-text-secondary); cursor: pointer; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; user-select: none; white-space: nowrap; }
+    .tab:hover { color: var(--color-text-primary); }
+    .tab.active { color: var(--color-text-primary); border-bottom-color: var(--color-accent); font-weight: 500; }
+
+    .body { padding: 20px 24px; max-width: 1100px; }
+
+    .filters-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .filters-label { font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
+    .tag { padding: 4px 12px; border-radius: 20px; font-size: 12px; border: 0.5px solid var(--color-border-mid); cursor: pointer; transition: all .12s; user-select: none; color: var(--color-text-secondary); background: var(--color-bg); }
+    .tag:hover { color: var(--color-text-primary); border-color: var(--color-text-tertiary); }
+    .tag.active { background: var(--color-accent-light); border-color: #5DCAA5; color: var(--color-accent-dark); font-weight: 500; }
+    .tag.src-active { background: #E6F1FB; border-color: #85B7EB; color: #185FA5; font-weight: 500; }
+    .divider { width: 0.5px; height: 18px; background: var(--color-border); margin: 0 2px; flex-shrink: 0; }
+    .search-wrap { position: relative; margin-left: auto; }
+    .search-icon { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); width: 13px; height: 13px; opacity: .4; pointer-events: none; color: var(--color-text-primary); }
+    .search-input { padding: 6px 10px 6px 28px; border: 0.5px solid var(--color-border-mid); border-radius: var(--radius-md); font-size: 13px; background: var(--color-bg); color: var(--color-text-primary); width: 180px; outline: none; }
+    .search-input:focus { border-color: var(--color-accent); }
+    .buzz-wrap { display: flex; align-items: center; gap: 6px; }
+    .buzz-label { font-size: 12px; color: var(--color-text-secondary); white-space: nowrap; }
+    .buzz-val { font-size: 12px; font-weight: 500; color: var(--color-text-primary); min-width: 28px; }
+    input[type=range] { accent-color: var(--color-accent); width: 90px; cursor: pointer; }
+
+    .stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+    .stat-card { background: var(--color-bg-secondary); border-radius: var(--radius-md); padding: 14px 16px; }
+    .stat-label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 4px; }
+    .stat-val { font-size: 20px; font-weight: 500; color: var(--color-text-primary); }
+    .stat-sub { font-size: 11px; color: var(--color-text-tertiary); margin-top: 2px; }
+
+    .gap-grid-header { display: grid; grid-template-columns: 1fr 96px 1fr; gap: 0; margin-bottom: 6px; }
+    .col-header { padding: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+    .col-badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 500; }
+    .col-badge.gov { background: #E6F1FB; color: #185FA5; }
+    .col-badge.pub { background: #FAEEDA; color: #854F0B; }
+    .col-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+    .col-sub { font-size: 11px; color: var(--color-text-tertiary); margin-left: auto; }
+    .gap-center-label { text-align: center; padding-bottom: 10px; font-size: 10px; color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: .06em; }
+
+    .item { background: var(--color-bg); border: 0.5px solid var(--color-border); border-radius: var(--radius-lg); padding: 11px 13px; cursor: pointer; transition: border-color .12s; margin-bottom: 8px; }
+    .item:hover { border-color: var(--color-border-mid); }
+    .item.open { border-color: var(--color-accent); }
+    .item-top { display: flex; align-items: flex-start; gap: 7px; margin-bottom: 5px; }
+    .item-rank { font-size: 11px; color: var(--color-text-tertiary); min-width: 18px; padding-top: 2px; flex-shrink: 0; }
+    .item-title { font-size: 13px; font-weight: 500; color: var(--color-text-primary); flex: 1; line-height: 1.4; }
+    .item-score { font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; padding-top: 2px; flex-shrink: 0; }
+    .chevron { font-size: 11px; color: var(--color-text-tertiary); padding-top: 2px; transition: transform .2s; flex-shrink: 0; }
+    .item.open .chevron { transform: rotate(180deg); }
+    .item-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 2px; }
+
+    .itag { font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 500; }
+    .itag.primary { outline: 1.5px solid currentColor; outline-offset: -1px; }
+    .itag.housing   { background: #E6F1FB; color: #185FA5; }
+    .itag.transport { background: #FAEEDA; color: #854F0B; }
+    .itag.safety    { background: #FCEBEB; color: #A32D2D; }
+    .itag.env       { background: #EAF3DE; color: #3B6D11; }
+    .itag.budget    { background: #EEEDFE; color: #534AB7; }
+    .itag.edu       { background: #FBEAF0; color: #993556; }
+    .isrc  { font-size: 11px; color: var(--color-text-tertiary); }
+    .ibuzz { font-size: 11px; color: var(--color-text-tertiary); }
+    .stage-chip { font-size: 11px; padding: 2px 7px; border-radius: 10px; background: var(--color-bg-secondary); color: var(--color-text-secondary); border: 0.5px solid var(--color-border); }
+    .template-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #FAEEDA; color: #854F0B; font-weight: 500; border: 0.5px solid #EF9F27; white-space: nowrap; flex-shrink: 0; }
+
+    .expand-panel { display: none; padding: 10px 0 2px; border-top: 0.5px solid var(--color-border); margin-top: 8px; }
+    .item.open .expand-panel { display: block; }
+    .expand-summary { font-size: 13px; color: var(--color-text-secondary); line-height: 1.6; margin-bottom: 8px; }
+    .expand-link { font-size: 12px; color: #185FA5; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+    .expand-link:hover { text-decoration: underline; }
+
+    .gap-pair { display: grid; grid-template-columns: 1fr 96px 1fr; gap: 0; margin-bottom: 8px; align-items: stretch; }
+    .gap-pair-left  { padding-right: 6px; }
+    .gap-pair-right { padding-left: 6px; }
+    .gap-pair-mid { display: flex; flex-direction: column; align-items: center; }
+    .gap-pill { font-size: 10px; padding: 3px 7px; border-radius: 10px; font-weight: 500; white-space: nowrap; text-align: center; }
+    .gap-pill.high { background: #FCEBEB; color: #A32D2D; }
+    .gap-pill.med  { background: #FAEEDA; color: #854F0B; }
+    .gap-pill.low  { background: #EAF3DE; color: #3B6D11; }
+    .gap-line { width: 0.5px; background: var(--color-border); flex: 1; min-height: 10px; }
+    .solo-label { font-size: 11px; color: var(--color-text-tertiary); text-align: center; line-height: 1.4; padding: 0 6px; }
+
+    .gap-note { margin-top: 16px; padding: 12px 14px; background: var(--color-accent-light); border-left: 3px solid #5DCAA5; }
+    .gap-note p { font-size: 12px; color: var(--color-accent-dark); line-height: 1.6; }
+
+    .section-view { display: none; }
+    .section-view.visible { display: block; }
+    .empty { font-size: 13px; color: var(--color-text-tertiary); padding: 20px 0; }
+
+    @media (max-width: 600px) {
+      .body { padding: 16px; }
+      .topbar { padding: 12px 16px 0; }
+      .stat-row { grid-template-columns: 1fr 1fr; }
+      .gap-grid-header, .gap-pair { grid-template-columns: 1fr 72px 1fr; }
+      .logo-sub { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="logo">
+      <span class="logo-dot"></span>
+      <span class="logo-text">Cambridge Civic Gap</span>
+      <span class="logo-sub">— agenda vs. what matters to you</span>
+    </div>
+    <span class="last-updated">Updated <span id="update-date"></span></span>
+  </div>
+  <div class="tabs">
+    <div class="tab" id="tab-gov" onclick="switchTab('gov')">Government agenda</div>
+    <div class="tab" id="tab-pub" onclick="switchTab('pub')">Public concerns</div>
+    <div class="tab active" id="tab-gap" onclick="switchTab('gap')">The gap</div>
+  </div>
+</div>
+
+<div class="body">
+
+  <!-- GOV TAB -->
+  <div class="section-view" id="view-gov">
+    <div class="filters-row">
+      <span class="filters-label">Topic</span>
+      <div class="tag active" onclick="toggleTopic(this,'gov')" data-all="1">All</div>
+      <div class="tag" onclick="toggleTopic(this,'gov')" data-cat="housing">Housing &amp; zoning</div>
+      <div class="tag" onclick="toggleTopic(this,'gov')" data-cat="transport">Transportation</div>
+      <div class="tag" onclick="toggleTopic(this,'gov')" data-cat="safety">Public safety</div>
+      <div class="tag" onclick="toggleTopic(this,'gov')" data-cat="env">Environment</div>
+      <div class="tag" onclick="toggleTopic(this,'gov')" data-cat="budget">Budget &amp; finance</div>
+      <div class="tag" onclick="toggleTopic(this,'gov')" data-cat="edu">Education</div>
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input class="search-input" type="text" placeholder="Search agenda..." oninput="renderGov()" id="gov-search"/>
+      </div>
+    </div>
+    <div id="gov-list"></div>
+  </div>
+
+  <!-- PUB TAB -->
+  <div class="section-view" id="view-pub">
+    <div class="filters-row">
+      <span class="filters-label">Topic</span>
+      <div class="tag active" onclick="toggleTopic(this,'pub')" data-all="1">All</div>
+      <div class="tag" onclick="toggleTopic(this,'pub')" data-cat="housing">Housing &amp; zoning</div>
+      <div class="tag" onclick="toggleTopic(this,'pub')" data-cat="transport">Transportation</div>
+      <div class="tag" onclick="toggleTopic(this,'pub')" data-cat="safety">Public safety</div>
+      <div class="tag" onclick="toggleTopic(this,'pub')" data-cat="env">Environment</div>
+      <div class="tag" onclick="toggleTopic(this,'pub')" data-cat="budget">Budget &amp; finance</div>
+      <div class="tag" onclick="toggleTopic(this,'pub')" data-cat="edu">Education</div>
+    </div>
+    <div class="filters-row">
+      <span class="filters-label">Source</span>
+      <div class="tag src-active" onclick="toggleSrc(this,'reddit')" data-src="reddit">Reddit</div>
+      <div class="tag src-active" onclick="toggleSrc(this,'changeorg')" data-src="changeorg">Change.org</div>
+      <div class="divider"></div>
+      <div class="buzz-wrap">
+        <span class="buzz-label">Min buzz score</span>
+        <input type="range" min="0" max="100" value="0" step="1"
+               oninput="document.getElementById('buzz-out').textContent=this.value;renderPub();" id="buzz-slider"/>
+        <span class="buzz-val" id="buzz-out">0</span>
+      </div>
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input class="search-input" type="text" placeholder="Search concerns..." oninput="renderPub()" id="pub-search"/>
+      </div>
+    </div>
+    <div id="pub-list"></div>
+  </div>
+
+  <!-- GAP TAB -->
+  <div class="section-view visible" id="view-gap">
+    <div class="stat-row">
+      <div class="stat-card">
+        <div class="stat-label">Topics tracked</div>
+        <div class="stat-val" id="stat-topics">—</div>
+        <div class="stat-sub" id="stat-topics-sub">covering both sides</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Biggest gap</div>
+        <div class="stat-val" id="stat-gap" style="color:#A32D2D;">—</div>
+        <div class="stat-sub">high public concern, low gov attention</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Most aligned</div>
+        <div class="stat-val" id="stat-aligned" style="color:#3B6D11;">—</div>
+        <div class="stat-sub">both sides focused here</div>
+      </div>
+    </div>
+    <div class="filters-row">
+      <span class="filters-label">Topic</span>
+      <div class="tag active" onclick="toggleTopic(this,'gap')" data-all="1">All</div>
+      <div class="tag" onclick="toggleTopic(this,'gap')" data-cat="housing">Housing &amp; zoning</div>
+      <div class="tag" onclick="toggleTopic(this,'gap')" data-cat="transport">Transportation</div>
+      <div class="tag" onclick="toggleTopic(this,'gap')" data-cat="safety">Public safety</div>
+      <div class="tag" onclick="toggleTopic(this,'gap')" data-cat="env">Environment</div>
+      <div class="tag" onclick="toggleTopic(this,'gap')" data-cat="budget">Budget &amp; finance</div>
+      <div class="tag" onclick="toggleTopic(this,'gap')" data-cat="edu">Education</div>
+      <div class="search-wrap">
+        <svg class="search-icon" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <input class="search-input" type="text" placeholder="Search topics..." oninput="renderGap()" id="gap-search"/>
+      </div>
+    </div>
+    <div class="gap-grid-header">
+      <div class="col-header">
+        <span class="col-badge gov">City council</span>
+        <span class="col-title">Government agenda</span>
+        <span class="col-sub">last 30 days</span>
+      </div>
+      <div class="gap-center-label">Gap</div>
+      <div class="col-header">
+        <span class="col-badge pub">Reddit &amp; petitions</span>
+        <span class="col-title">Public concerns</span>
+        <span class="col-sub">top this month</span>
+      </div>
+    </div>
+    <div id="gap-pairs"></div>
+    <div class="gap-note">
+      <p><strong>How to read this:</strong> Items are matched by their primary topic tag (shown with an outline border and ★). Secondary tags reflect other themes the item touches. The gap pill shows alignment — red means residents are talking loudly but the council has few items; green means both are focused here. Click any card to read a summary and view the source.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ─────────────────────────────────────────────────────────────────────────
+  // DATA — fetched from FastAPI backend at /api/feed
+  // ─────────────────────────────────────────────────────────────────────────
+  let govItems = [];
+  let pubItems = [];
+
+  async function loadData() {
+    try {
+      const res = await fetch('/api/feed');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      govItems = data.govItems || [];
+      pubItems = data.pubItems || [];
+    } catch (err) {
+      console.error('Failed to load /api/feed:', err);
+      document.getElementById('gap-pairs').innerHTML =
+        `<div class="empty">Failed to load data: ${err.message}. Is the backend running?</div>`;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // STATE
+  // ─────────────────────────────────────────────────────────────────────────
+  const gapLabels = { high:"High gap", med:"Some gap", low:"Aligned" };
+  let activeSrcs   = { reddit:true, changeorg:true };
+  let activeTopics = { gov:null, pub:null, gap:null };
+  let openItems    = {};
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HELPERS
+  // ─────────────────────────────────────────────────────────────────────────
+  function tagClass(t) {
+    return { housing:"housing", transport:"transport", safety:"safety",
+             env:"env", budget:"budget", edu:"edu" }[t] || "";
+  }
+  function srcLabel(s) { return s === "reddit" ? "Reddit" : "Change.org"; }
+  function matchesTopic(item, filter) { return !filter || filter.includes(item.primaryTag); }
+  function matchesSearch(item, val)   { return !val || item.title.toLowerCase().includes(val.toLowerCase()); }
+
+  // Returns numeric signal count if the gov score is "N signals", else null (stage label).
+  function govSignals(score) {
+    const m = (score || '').match(/^(\d+)\s+signal/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  function buildTagsHtml(item) {
+    return (item.tags || []).map(t => {
+      const isPrimary = t === item.primaryTag;
+      return `<span class="itag ${tagClass(t)}${isPrimary ? ' primary' : ''}">${t}${isPrimary ? ' ★' : ''}</span>`;
+    }).join("");
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  const linkSvg = `<svg style="width:11px;height:11px;opacity:.7" viewBox="0 0 12 12" fill="none"><path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  function buildItem(d, rank, type) {
+    const isOpen   = !!openItems[d.id];
+    const tags     = buildTagsHtml(d);
+
+    // For gov items, only show item-score when it's a real signal count.
+    // Stage labels (Upcoming, Passed, etc.) move to the meta row as a stage chip.
+    let scoreHtml = "";
+    let stageBit  = "";
+    if (type === "gov") {
+      const signals = govSignals(d.score);
+      if (signals !== null) {
+        scoreHtml = `<span class="item-score">${escapeHtml(d.score)}</span>`;
+      } else if (d.score) {
+        stageBit = `<span class="stage-chip">${escapeHtml(d.score)}</span>`;
+      }
+    } else {
+      scoreHtml = `<span class="item-score">${escapeHtml(d.score)}</span>`;
+    }
+
+    const srcBit   = type === "pub" ? `<span class="isrc">${srcLabel(d.src)}</span>` : "";
+    const buzzBit  = type === "pub" ? `<span class="ibuzz">buzz ${d.buzz}</span>` : "";
+    const dateBit  = type === "gov" && d.date ? `<span class="isrc">${escapeHtml(d.date)}</span>` : "";
+    const rankBit  = rank ? `<span class="item-rank">#${rank}</span>` : "";
+    return `<div class="item${isOpen ? ' open' : ''}" onclick="toggleOpen('${escapeHtml(d.id)}',event)">
+      <div class="item-top">
+        ${rankBit}
+        <span class="item-title">${escapeHtml(d.title)}</span>
+        ${scoreHtml}
+        <span class="chevron">▾</span>
+      </div>
+      <div class="item-meta">${tags}${stageBit}${srcBit}${buzzBit}${dateBit}</div>
+      <div class="expand-panel">
+        <p class="expand-summary">${escapeHtml(d.summary)}</p>
+        <a class="expand-link" href="${escapeHtml(d.url)}" target="_blank" rel="noopener"
+           onclick="event.stopPropagation()">View source ${linkSvg}</a>
+      </div>
+    </div>`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // GAP PAIR BUILDER
+  // ─────────────────────────────────────────────────────────────────────────
+  function buildGapPairs() {
+    const govByTag = {}, pubByTag = {};
+    govItems.forEach(g => { (govByTag[g.primaryTag] = govByTag[g.primaryTag] || []).push(g); });
+    pubItems.forEach(p => { (pubByTag[p.primaryTag] = pubByTag[p.primaryTag] || []).push(p); });
+
+    // Within each tag, surface the strongest items first:
+    //   gov  → highest signal count (items with real matches), then by date
+    //   pub  → highest buzz
+    Object.values(govByTag).forEach(arr => arr.sort((a, b) => {
+      const sa = govSignals(a.score) || 0;
+      const sb = govSignals(b.score) || 0;
+      if (sb !== sa) return sb - sa;
+      return (b.date || '').localeCompare(a.date || '');
+    }));
+    Object.values(pubByTag).forEach(arr => arr.sort((a, b) => (b.buzz || 0) - (a.buzz || 0)));
+
+    const allTags = [...new Set([...Object.keys(govByTag), ...Object.keys(pubByTag)])];
+    const pairs = [];
+    allTags.forEach(tag => {
+      const gs  = govByTag[tag] || [];
+      const ps  = pubByTag[tag] || [];
+      const len = Math.max(gs.length, ps.length, 1);
+      for (let i = 0; i < len; i++) {
+        const g = gs[i] || null;
+        const p = ps[i] || null;
+        let gap = null;
+        if (g && p) {
+          const gScore = govSignals(g.score) || 0;
+          if      (p.buzz > 70 && gScore <= 4) gap = "high";
+          else if (p.buzz > 40 && gScore <= 8) gap = "med";
+          else if (gScore >= 1)                gap = "low";
+        }
+        pairs.push({ g, p, gap, tag });
+      }
+    });
+    return pairs;
+  }
+
+  const TOPIC_LABELS = {
+    housing: 'Housing', transport: 'Transport', safety: 'Safety',
+    env: 'Environment', budget: 'Budget', edu: 'Education',
+  };
+
+  function updateStats() {
+    const pairs = buildGapPairs().filter(p => p.g && p.p);
+    const topicSet = new Set([
+      ...govItems.map(g => g.primaryTag),
+      ...pubItems.map(p => p.primaryTag),
+    ]);
+    document.getElementById('stat-topics').textContent = topicSet.size;
+    document.getElementById('stat-topics-sub').textContent =
+      `${govItems.length} agenda items · ${pubItems.length} public signals`;
+
+    const highPair = pairs.filter(p => p.gap === 'high').sort((a,b) => b.p.buzz - a.p.buzz)[0];
+    const lowPair  = pairs.filter(p => p.gap === 'low')[0];
+    document.getElementById('stat-gap').textContent     = highPair ? (TOPIC_LABELS[highPair.tag] || highPair.tag) : '—';
+    document.getElementById('stat-aligned').textContent = lowPair  ? (TOPIC_LABELS[lowPair.tag]  || lowPair.tag)  : '—';
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
+  function renderGov() {
+    const s = document.getElementById('gov-search').value;
+    const f = activeTopics.gov;
+    const items = govItems.filter(d => matchesTopic(d, f) && matchesSearch(d, s));
+    document.getElementById('gov-list').innerHTML = items.length
+      ? items.map((d, i) => buildItem(d, i + 1, 'gov')).join('')
+      : `<div class="empty">No agenda items match this filter.</div>`;
+  }
+
+  function renderPub() {
+    const s    = document.getElementById('pub-search').value;
+    const f    = activeTopics.pub;
+    const minB = parseInt(document.getElementById('buzz-slider').value) || 0;
+    const items = pubItems.filter(d =>
+      matchesTopic(d, f) && matchesSearch(d, s) && activeSrcs[d.src] && d.buzz >= minB
+    );
+    document.getElementById('pub-list').innerHTML = items.length
+      ? items.map((d, i) => buildItem(d, i + 1, 'pub')).join('')
+      : `<div class="empty">No public concerns match this filter.</div>`;
+  }
+
+  function renderGap() {
+    const s = document.getElementById('gap-search').value.toLowerCase();
+    const f = activeTopics.gap;
+    const pairs = buildGapPairs().filter(p => {
+      const rep = p.g || p.p; if (!rep) return false;
+      if (f && !f.includes(p.tag)) return false;
+      if (s) {
+        const gs = p.g && p.g.title.toLowerCase().includes(s);
+        const ps = p.p && p.p.title.toLowerCase().includes(s);
+        if (!gs && !ps) return false;
+      }
+      return true;
+    });
+
+    if (!pairs.length) {
+      document.getElementById('gap-pairs').innerHTML = `<div class="empty">No matched pairs for this filter.</div>`;
+      return;
+    }
+
+    document.getElementById('gap-pairs').innerHTML = pairs.map(p => {
+      const leftHtml = p.g
+        ? buildItem(p.g, null, 'gov')
+        : `<div style="min-height:64px;display:flex;align-items:center;justify-content:center;"><span class="solo-label">No council item yet</span></div>`;
+      const rightHtml = p.p
+        ? buildItem(p.p, null, 'pub')
+        : `<div style="min-height:64px;display:flex;align-items:center;justify-content:center;"><span class="solo-label">No public signal yet</span></div>`;
+      const midHtml = p.gap
+        ? `<div class="gap-pair-mid"><div class="gap-line"></div><div class="gap-pill ${p.gap}">${gapLabels[p.gap]}</div><div class="gap-line"></div></div>`
+        : `<div class="gap-pair-mid" style="justify-content:center;min-height:64px;"><span style="font-size:10px;color:var(--color-text-tertiary);">unmatched</span></div>`;
+      return `<div class="gap-pair">
+        <div class="gap-pair-left">${leftHtml}</div>
+        ${midHtml}
+        <div class="gap-pair-right">${rightHtml}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderAll() {
+    const active = ['gov','pub','gap'].find(t =>
+      document.getElementById('view-' + t).classList.contains('visible')
+    );
+    if (active === 'gov') renderGov();
+    else if (active === 'pub') renderPub();
+    else renderGap();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // INTERACTIONS
+  // ─────────────────────────────────────────────────────────────────────────
+  function toggleOpen(id, e) {
+    e.stopPropagation();
+    openItems[id] = !openItems[id];
+    renderAll();
+  }
+
+  function toggleTopic(el, ns) {
+    const row = el.closest('.filters-row');
+    if (el.dataset.all) {
+      row.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      activeTopics[ns] = null;
+    } else {
+      row.querySelector('[data-all]').classList.remove('active');
+      el.classList.toggle('active');
+      const active = [...row.querySelectorAll('.tag[data-cat].active')].map(t => t.dataset.cat);
+      activeTopics[ns] = active.length ? active : null;
+      if (!active.length) row.querySelector('[data-all]').classList.add('active');
+    }
+    if (ns === 'gov') renderGov();
+    else if (ns === 'pub') renderPub();
+    else renderGap();
+  }
+
+  function toggleSrc(el, src) {
+    el.classList.toggle('src-active');
+    activeSrcs[src] = el.classList.contains('src-active');
+    renderPub();
+  }
+
+  function switchTab(tab) {
+    ['gov','pub','gap'].forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+      document.getElementById('view-' + t).classList.toggle('visible', t === tab);
+    });
+    renderAll();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // INIT
+  // ─────────────────────────────────────────────────────────────────────────
+  document.getElementById('update-date').textContent = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  loadData().then(() => {
+    updateStats();
+    renderGap();
+  });
+</script>
+</body>
+</html>

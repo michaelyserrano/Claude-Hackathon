@@ -5,10 +5,12 @@ Run:
 """
 
 import json
+from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -17,8 +19,28 @@ from app import db
 BASE_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title="Cambridge Civic Feed")
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+_static = BASE_DIR / "static"
+if _static.exists():
+    app.mount("/static", StaticFiles(directory=_static), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
+
+
+_TOPIC_MAP = {
+    "housing":         "housing",
+    "transit":         "transport",
+    "climate":         "env",
+    "schools":         "edu",
+    "public safety":   "safety",
+    "budget/spending": "budget",
+    "parks":           "env",
+    # "civic process" and "other" have no frontend equivalent — omit
+}
 
 
 def _parse_tags(raw: str | None) -> list[str]:
@@ -29,6 +51,37 @@ def _parse_tags(raw: str | None) -> list[str]:
         return val if isinstance(val, list) else []
     except (json.JSONDecodeError, TypeError):
         return []
+
+
+def _map_topics(raw_json: str | None) -> list[str]:
+    seen: set[str] = set()
+    result = []
+    for t in _parse_tags(raw_json):
+        if not isinstance(t, str):
+            continue
+        slug = _TOPIC_MAP.get(t.lower())
+        if slug and slug not in seen:
+            result.append(slug)
+            seen.add(slug)
+    return result
+
+
+def _format_date(iso: str | None) -> str:
+    if not iso:
+        return ""
+    try:
+        d = date.fromisoformat(iso[:10])
+        return d.strftime("%b %-d")
+    except (ValueError, TypeError):
+        return iso or ""
+
+
+def _truncate(text: str | None, n: int = 500) -> str:
+    if not text:
+        return ""
+    if len(text) <= n:
+        return text
+    return text[:n].rsplit(" ", 1)[0] + "…"
 
 
 def _wants_json(request: Request) -> bool:
@@ -79,67 +132,101 @@ def api_items(request: Request, topic: str | None = None,
     )
 
 
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard():
+    """Serve the standalone dashboard HTML."""
+    return FileResponse(BASE_DIR / "static" / "dashboard.html")
+
+
 @app.get("/api/feed")
 def api_feed():
-    """Frontend contract: {govItems: [...], pubItems: [...]}.
-
-    Each item has: title, tags[], src, score, url.
-    pubItems additionally have: buzz (raw signal weight).
-    """
     conn = db.connect()
     try:
-        gov_rows = conn.execute(
-            """
-            SELECT a.id, a.title, a.topics, a.agenda_url,
-                   COALESCE(b.score, 0) AS score
+        gov_rows = conn.execute("""
+            SELECT a.id, a.title, a.topics, a.agenda_url, a.summary,
+                   a.meeting_date, a.stage,
+                   COALESCE(b.score, 0) AS buzz_score,
+                   COALESCE(b.petition_count, 0) + COALESCE(b.reddit_count, 0) AS signal_count
             FROM agenda_items a
             LEFT JOIN buzz_scores b ON b.agenda_item_id = a.id
-            ORDER BY score DESC, a.meeting_date DESC
-            """
-        ).fetchall()
-
-        gov_items = [
-            {
-                "title": r["title"],
-                "tags": _parse_tags(r["topics"]),
-                "src": "gov",
-                "score": r["score"],
-                "url": r["agenda_url"],
-            }
-            for r in gov_rows
-        ]
+            ORDER BY buzz_score DESC, a.meeting_date DESC
+        """).fetchall()
 
         petition_rows = conn.execute(
-            "SELECT title, topics, url, signature_count FROM petitions"
+            "SELECT id, url, title, description, signature_count, topics FROM petitions"
         ).fetchall()
         reddit_rows = conn.execute(
-            "SELECT title, topics, url, score FROM reddit_posts"
+            "SELECT id, url, title, body, score, subreddit, topics FROM reddit_posts"
         ).fetchall()
 
-        pub_items = [
-            {
-                "title": r["title"],
-                "tags": _parse_tags(r["topics"]),
-                "src": "petition",
-                "buzz": r["signature_count"] or 0,
-                "score": r["signature_count"] or 0,
-                "url": r["url"],
-            }
-            for r in petition_rows
-        ] + [
-            {
-                "title": r["title"],
-                "tags": _parse_tags(r["topics"]),
-                "src": "reddit",
-                "buzz": r["score"] or 0,
-                "score": r["score"] or 0,
-                "url": r["url"],
-            }
-            for r in reddit_rows
-        ]
+        all_raw = (
+            [r["signature_count"] or 0 for r in petition_rows] +
+            [r["score"] or 0 for r in reddit_rows]
+        )
+        max_raw = max(all_raw) if all_raw else 1
+        if max_raw <= 0:
+            max_raw = 1
+
+        def _norm(v):
+            return round((v or 0) / max_raw * 100)
+
+        gov_items = []
+        for r in gov_rows:
+            tags    = _map_topics(r["topics"])
+            primary = tags[0] if tags else "budget"
+            if not tags:
+                tags = [primary]
+            n = r["signal_count"]
+            score_label = f"{n} signal{'s' if n != 1 else ''}" if n else (r["stage"] or "")
+            gov_items.append({
+                "id":         r["id"],
+                "title":      r["title"],
+                "primaryTag": primary,
+                "tags":       tags,
+                "score":      score_label,
+                "date":       _format_date(r["meeting_date"]),
+                "summary":    r["summary"] or "",
+                "url":        r["agenda_url"] or "",
+            })
+
+        pub_items = []
+        for r in petition_rows:
+            tags    = _map_topics(r["topics"])
+            primary = tags[0] if tags else "housing"
+            if not tags:
+                tags = [primary]
+            sig = r["signature_count"] or 0
+            pub_items.append({
+                "id":         r["id"],
+                "title":      r["title"],
+                "primaryTag": primary,
+                "tags":       tags,
+                "src":        "changeorg",
+                "buzz":       _norm(sig),
+                "score":      f"{sig:,} signatures",
+                "summary":    _truncate(r["description"]),
+                "url":        r["url"] or "",
+            })
+
+        for r in reddit_rows:
+            tags    = _map_topics(r["topics"])
+            primary = tags[0] if tags else "safety"
+            if not tags:
+                tags = [primary]
+            upvotes = r["score"] or 0
+            pub_items.append({
+                "id":         r["id"],
+                "title":      r["title"],
+                "primaryTag": primary,
+                "tags":       tags,
+                "src":        "reddit",
+                "buzz":       _norm(upvotes),
+                "score":      f"{upvotes:,} upvotes",
+                "summary":    _truncate(r["body"]),
+                "url":        r["url"] or "",
+            })
 
         pub_items.sort(key=lambda x: x["buzz"], reverse=True)
-
         return JSONResponse({"govItems": gov_items, "pubItems": pub_items})
     finally:
         conn.close()
