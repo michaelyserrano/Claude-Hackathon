@@ -12,8 +12,10 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "civic.db"
 
 def connect() -> sqlite3.Connection:
     """Open a read-only connection. Set row_factory to sqlite3.Row."""
-    # TODO
-    ...
+    uri = f"file:{DB_PATH}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 # Query contracts — what the templates need.
