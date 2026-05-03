@@ -1,9 +1,6 @@
-"""Shared SQLite helpers for ingest scripts.
+"""Shared SQLite helpers for ingest scripts."""
 
-All ingest scripts read/write through this module. Keep it small — connection
-management, JSON encode/decode for embeddings/topics, and a couple of upserts.
-"""
-
+import json
 import sqlite3
 from pathlib import Path
 
@@ -12,44 +9,77 @@ SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 
 
 def connect() -> sqlite3.Connection:
-    """Open a connection with row factory set to sqlite3.Row."""
-    # TODO
-    ...
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 
 def init_schema() -> None:
-    """Apply schema.sql. Idempotent (CREATE IF NOT EXISTS)."""
-    # TODO
+    conn = connect()
+    try:
+        with open(SCHEMA_PATH) as f:
+            conn.executescript(f.read())
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_agenda_item(conn: sqlite3.Connection, item: dict) -> None:
+    """Insert or replace an agenda_items row.
+
+    Preserves summary/topics/embedding from any prior row with the same id so
+    re-scraping doesn't blow away enrichment work.
+    """
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO agenda_items
+          (id, meeting_date, title, raw_text, summary, topics, stage,
+           dollar_amount, sponsors, embedding)
+        VALUES (
+          :id, :meeting_date, :title, :raw_text,
+          (SELECT summary   FROM agenda_items WHERE id = :id),
+          (SELECT topics    FROM agenda_items WHERE id = :id),
+          :stage, :dollar_amount, :sponsors,
+          (SELECT embedding FROM agenda_items WHERE id = :id)
+        )
+        """,
+        {
+            "id": item["id"],
+            "meeting_date": item["meeting_date"],
+            "title": item["title"],
+            "raw_text": item["raw_text"],
+            "stage": item["stage"],
+            "dollar_amount": item.get("dollar_amount"),
+            "sponsors": json.dumps(item.get("sponsors") or []),
+        },
+    )
+
+
+def upsert_petition(conn, petition: dict) -> None:  # filled in scrape_changeorg
     ...
 
 
-def upsert_agenda_item(conn, item: dict) -> None:
-    """Insert or replace a row in agenda_items. `item` is a dict matching schema columns."""
-    # TODO
-    ...
-
-
-def upsert_petition(conn, petition: dict) -> None:
-    # TODO
-    ...
-
-
-def upsert_reddit_post(conn, post: dict) -> None:
-    # TODO
+def upsert_reddit_post(conn, post: dict) -> None:  # filled in scrape_reddit
     ...
 
 
 def get_unembedded(conn, table: str) -> list[sqlite3.Row]:
-    """Return rows in `table` where embedding IS NULL. Used by enrich.py."""
-    # TODO
-    ...
+    return conn.execute(
+        f"SELECT * FROM {table} WHERE embedding IS NULL"
+    ).fetchall()
 
 
 def write_embedding(conn, table: str, row_id: str, embedding: list[float]) -> None:
-    # TODO
-    ...
+    conn.execute(
+        f"UPDATE {table} SET embedding = ? WHERE id = ?",
+        (json.dumps(embedding), row_id),
+    )
 
 
 def write_topics(conn, table: str, row_id: str, topics: list[str]) -> None:
-    # TODO
-    ...
+    conn.execute(
+        f"UPDATE {table} SET topics = ? WHERE id = ?",
+        (json.dumps(topics), row_id),
+    )
